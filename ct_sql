@@ -1,0 +1,171 @@
+#temp table showing what countries are being searched for 
+
+drop table if exists articles_locations ;
+create temp table articles_locations as (
+select distinct a.post_id,
+dld.location_name as city
+from davis.entities_article_mention_davis a
+inner join davis.locations_davis dld
+on a.kg_id = dld.kg_id
+where 1=1
+and a.status in (1,3)
+and a.score >= 90
+and dld.status in (1,3)
+and dld.node_type in ('COUNTRY')
+order by 1
+);
+
+#getting names of articles that have been published about UK for example
+
+create temp table uk_articles as (
+select distinct post_id as id,
+url_path as url
+from wordpress.post_path
+where split_part(split_part(url_path,'europe/',2),'/',1) = 'united-kingdom'
+);
+
+select count(distinct art.post_title) as name,
+date_part(mon, art.post_date) as month
+from uk_articles uk
+inner join wordpress.articles art 
+on uk.id = art.post_id
+where art.post_date >= '2016-01-01'
+and art.post_status = 'publish'
+group by month, year;
+
+#gives you average session duration for 'search' traffic
+
+drop table if exists sessions ;
+create temp table sessions as (
+select distinct
+domain_sessionid,
+min(derived_tstamp) as min_tstamp,
+max(derived_tstamp) as max_tstamp
+from atomic.events
+where derived_tstamp >= '2018-11-28' and derived_tstamp < '2018-11-29'
+and platform = 'web'
+and page_urlhost = 'theculturetrip.com'
+and refr_medium = 'search'
+group by 1
+);
+
+drop table if exists session_length ;
+create temp table session_length as (
+select distinct
+domain_sessionid,
+case when abs(date_diff('second', min_tstamp, max_tstamp)) <= 1800
+    then abs(date_diff('second', min_tstamp, max_tstamp)) else 1800 end as session_length
+from sessions
+);
+
+select
+count(distinct domain_sessionid) as sessions,
+sum(session_length)/count(distinct domain_sessionid)::float as avg_session_len
+from session_length;
+
+#what users are searching for within ct
+
+select
+    date_trunc('day', derived_tstamp) as date_week,
+    geo_country,
+    count(*) number_of_searches
+from atomic.events
+where 1=1
+    and derived_tstamp >= getdate() - integer '90'
+    and se_action = 'top_nav_auto_complete_choose'
+    and split_part(split_part(se_label,'choice:',2),',',1) <> ''
+    and lower(se_label) LIKE '%christmas%'
+group by 1
+order by 1 asc;
+
+#what users are searching for within ct with or clause 
+
+select
+   date_trunc('day', derived_tstamp) as date_week,
+   geo_country,
+   count(*) number_of_searches
+from atomic.events
+where 1=1
+   and derived_tstamp >= '2018-12-01'
+   and se_action = 'top_nav_auto_complete_choose'
+   and split_part(split_part(se_label,'choice:',2),',',1) <> ''
+   and (lower(se_label) LIKE '%marijuana%' or lower(se_label) LIKE '%cannabis%')
+group by 1,2
+order by 1 asc
+
+#looking at what users are searching for by specifying key words in the url
+
+select
+    date_trunc('month', derived_tstamp) as month,
+    count(*) number_of_searches
+from atomic.events
+where 1=1
+    and geo_country <> 'CA'
+    and derived_tstamp >= '2018-01-01'
+    and se_action = 'top_nav_auto_complete_choose'
+    and split_part(split_part(se_label,'choice:',2),',',1) <> ''
+    and (lower(se_label) LIKE '%marijuana%' or lower(se_label) LIKE '%cannabis%' or lower(se_label ) like '%weed%')
+group by 1
+order by 1 asc;
+
+#case selecting and also getting average time on each page
+
+select
+    case
+           when b.post_category in ('travel-misc','travel') then 'guides-and-tips'
+           when b.post_category in ('attractions','whats-on') then 'see-and-do'
+           when b.post_category in ('film') then 'film-and-tv'
+           when b.post_category in ('restaurants','food-misc','bars-and-cafes','shops','food') then 'food-and-drinks'
+           when b.post_category in ('history') then 'history'
+           when b.post_category in ('literature') then 'books'
+           when b.post_category in ('art') then 'art'
+           when b.post_category in ('fashion','health-and-wellness','tech','home-and-interiors','sports') then 'lifestyle'
+           when b.post_category in ('music') then 'music'
+           when b.post_category in ('hotels') then 'places-to-stay'
+           when b.post_category in ('design') then 'design'
+           when b.post_category in ('architecture') then 'architecture'
+           else 'other'
+       end as genre,
+  sum(a.total_visit_time)/sum(a.sessions) as avg_session_duration_secs,
+  sum(a.page_view) page_views
+from	agg.page_actions a
+left join wordpress.articles b on b.post_id = a.post_id
+where 1=1
+    and a.dt >='2018-02-01'
+    and a.dt <='2018-07-31'
+group by 1
+order by 1 asc
+
+#selecting data by atomic events
+
+select 
+  date_trunc(day, at.derived_tstamp) as day,
+  count(distinct at.event_id)
+from atomic.events at
+inner join wordpress.post_path pp
+on at.page_urlpath = pp.url_path
+inner join wordpress.articles b
+on pp.post_id = b.post_id
+where at.derived_tstamp >= '2018-11-01' and at.derived_tstamp <='2018-12-11'
+and at.geo_region in ('RI','MA','ME', 'NH', 'VT', 'CT')
+and at.geo_country = 'US'
+and at.event = 'page_view'
+and lower(b.post_title) similar to '%christmas%'
+and at.refr_medium = 'search'
+
+#getting average session time by city
+#to get average number of page views per city you can take the Total PVs for all articles 
+about a city / total number of articles about that city
+
+SELECT
+  sum(a.total_visit_time)/sum(a.sessions)
+FROM agg.page_actions a
+inner join wordpress.articles wrd
+on a.post_id = wrd.post_id
+inner join wordpress.post_path wpp 
+on wrd.post_id = wpp.post_id
+where 1=1
+  and wrd.post_date >= '2018-01-01'
+  and wpp.url_path LIKE '%los-angeles%'
+  and a.refr_medium = 'search'
+  and wrd.post_status = 'publish'
