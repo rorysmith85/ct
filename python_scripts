@@ -1,0 +1,135 @@
+********* basic setup
+import ast
+import numpy as np
+import pandas as pd
+import collections
+import nltk
+from nltk.corpus import stopwords
+import matplotlib.pyplot as plt
+import matplotlib.style as style
+style.use('fivethirtyeight')
+
+pd.set_option('display.max_columns', 500)
+pd.options.display.max_colwidth = 100
+
+********** hashing
+def hashing(col):
+    
+    col = col.apply(lambda x: ast.literal_eval(x))
+    
+    def mapper(s):
+        all_vals = list()
+
+        for l in s:
+            [all_vals.append(x) for x in l]
+
+        all_vals.sort()
+        return all_vals
+
+    def reducer(l):
+        all_counts = dict()
+        prev = l[0]
+        count = 0
+
+        for x in l:
+            if x == prev:
+                count = count + 1
+            else:
+                all_counts[prev] = count
+                prev = x
+                count = 1      
+
+        all_counts[prev] = count
+
+        return all_counts
+    
+    mapped = mapper(col)
+    reduced = reducer(mapped)
+    reduced = dict(sorted(reduced.items(), key=lambda x: x[1], reverse=True))
+    
+    df = pd.DataFrame(list(reduced.items()), columns=['hashtag', 'number']).head(20).sort_values('number', ascending=False)
+    return df
+    
+************ urls or anything else in its own df
+def mapper(s):
+    all_vals = list()
+
+    for l in s:
+        [all_vals.append(x) for x in l]
+
+    all_vals = all_vals.sort()
+
+    df = pd.DataFrame(all_vals, columns = ['urls'])
+
+    return df
+    
+
+************ tldextract
+import tldextract
+
+def url_extract(rows):
+    line = tldextract.extract(str(rows['urls']))
+    url = line.domain + '.' + line.suffix
+    return url
+
+
+df['url'] = df.apply(url_extract, axis=1)
+
+
+*********** globbing csvs from file
+import glob
+file = '/Users/rorysmith/Documents/uk_crosscheck/international_influencer_accounts/'
+all_files = glob.glob(file + "*.csv")
+
+li = []
+
+for filename in all_files:
+    df = pd.read_csv(filename)
+    li.append(df)
+
+frame = pd.concat(li, axis=0, ignore_index=True)
+
+
+*********** line graph
+def line_graph(df, column_to_count title):
+
+  days = df.groupby('date')[column_to_count].count()
+  days.index = pd.to_datetime(days.index)
+  days.sort_index(inplace=True)
+  days.index = days.index
+
+  plt.figure(figsize=(20,10))
+  plt.plot(days)
+  plt.title(title)
+  plt.xticks(rotation=-90)
+  plt.show()
+  
+
+************ coding for retweets vs tweets
+def rt(row):
+    if row['tweet_message'].startswith("RT @") == True:
+        return 1
+    else:
+        return 0
+    
+df['tweet'] = df.apply(rt, axis=1)
+
+or 
+
+df['row'] = df.original_row.apply(lambda x: 1 if x.startswith("RT @") == True else 0)
+
+
+
+************ bar chart
+def bar_chart(tags, number, title):
+    plt.figure(figsize=(20,10))
+    plt.barh(tags, number)
+    plt.title(title)
+    plt.show()
+   
+ 
+ 
+ *************
+
+
+
